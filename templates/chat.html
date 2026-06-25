@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MediGuide • Multimodal Chatbot</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet" />
+  <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2966/2966481.png" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='chat.css') }}" />
+  <style>
+    /* Clean styling for file upload icon integration */
+    .file-upload-btn {
+      background: none;
+      border: none;
+      color: #6c757d;
+      cursor: pointer;
+      padding: 0 10px;
+      font-size: 1.2rem;
+      transition: color 0.2s;
+    }
+    .file-upload-btn:hover, .file-upload-btn.active {
+      color: #0d6efd;
+    }
+    #imageInput {
+      display: none;
+    }
+    .file-indicator {
+      font-size: 0.8rem;
+      padding: 2px 8px;
+      background-color: rgba(13, 110, 253, 0.2);
+      color: #0d6efd;
+      border-radius: 4px;
+      display: none;
+      align-items: center;
+      gap: 5px;
+      max-width: fit-content;
+    }
+ 
+    /* Mic button - mirrors the paperclip button styling, adds a recording pulse state */
+    .mic-btn {
+      background: none;
+      border: none;
+      color: #6c757d;
+      cursor: pointer;
+      padding: 0 10px;
+      font-size: 1.2rem;
+      transition: color 0.2s;
+    }
+    .mic-btn:hover {
+      color: #0d6efd;
+    }
+    .mic-btn.recording {
+      color: #dc3545;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%   { opacity: 1; }
+      50%  { opacity: 0.4; }
+      100% { opacity: 1; }
+    }
+    .mic-unsupported {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+ 
+    /* Drag-and-drop overlay - covers the whole chat card while a file is dragged over it */
+    .app-card {
+      position: relative;
+    }
+    #dropOverlay {
+      position: absolute;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(13, 110, 253, 0.12);
+      border: 3px dashed #0d6efd;
+      border-radius: inherit;
+      pointer-events: none; /* overlay never intercepts the actual drop events */
+      backdrop-filter: blur(1px);
+    }
+    #dropOverlay.active {
+      display: flex;
+    }
+    #dropOverlay i {
+      font-size: 2.5rem;
+      color: #0d6efd;
+    }
+    #dropOverlay span {
+      font-weight: 600;
+      color: #0d6efd;
+    }
+    .drop-reject {
+      border-color: #dc3545 !important;
+      background: rgba(220, 53, 69, 0.12) !important;
+    }
+    .drop-reject i, .drop-reject span {
+      color: #dc3545 !important;
+    }
+  </style>
+</head>
+<body data-theme="dark">
+  <main class="container py-4 chat-shell">
+    <section class="app-card" id="appCard">
+ 
+      <!-- Drag-and-drop visual overlay, shown only while dragging a file over the app -->
+      <div id="dropOverlay">
+        <i class="fa-solid fa-cloud-arrow-up"></i>
+        <span id="dropOverlayText">Drop your X-ray image here</span>
+      </div>
+ 
+      <header class="app-header">
+        <div class="brand-icon" aria-hidden="true">
+          <i class="fa-solid fa-stethoscope"></i>
+          <span class="presence-dot" title="Online"></span>
+        </div>
+        <div class="flex-grow-1">
+          <div class="title h5 mb-0">MediGuide Chat</div>
+          <div class="subtitle">Educational Multimodal Assistant • DenseNet-121 & RAG</div>
+        </div>
+        <div class="toolbar">
+          <button id="btnTheme" class="theme-toggle" aria-label="Toggle theme"><i class="fa-regular fa-sun"></i></button>
+        </div>
+      </header>
+ 
+      <div class="banner"><i class="fa-solid fa-circle-info"></i>
+        For education only — not a substitute for professional medical advice. In an emergency, call your local emergency number.
+      </div>
+ 
+      <section id="chatBody" class="chat-body" aria-live="polite" aria-label="Conversation"></section>
+ 
+      <footer class="app-footer">
+        <div id="fileIndicator" class="file-indicator mb-2">
+          <i class="fa-solid fa-image"></i> <span id="fileName"></span>
+          <i class="fa-solid fa-xmark" style="cursor:pointer;" id="clearFile"></i>
+        </div>
+ 
+        <form id="chatForm" class="input-wrap" autocomplete="off" enctype="multipart/form-data">
+          <input type="file" id="imageInput" name="image" accept="image/*" />
+ 
+          <button type="button" id="uploadTrigger" class="file-upload-btn" title="Upload Medical Image">
+            <i class="fa-solid fa-paperclip"></i>
+          </button>
+ 
+          <button type="button" id="micBtn" class="mic-btn" title="Speak your question">
+            <i class="fa-solid fa-microphone"></i>
+          </button>
+ 
+          <input id="text" name="msg" class="form-control" placeholder="Ask a question, speak, or drop a scan…" required />
+          <button id="send" class="btn btn-send" type="submit" aria-label="Send"><i class="fa-solid fa-paper-plane"></i></button>
+        </form>
+        <div class="mt-2 small text-secondary">By using this chat, you agree to the
+          <a class="small-link" href="#" onclick="alert('Add your policy URL here');return false;">use policy</a>.
+        </div>
+      </footer>
+    </section>
+  </main>
+ 
+  <template id="tpl-user">
+    <div class="msg user">
+      <div class="bubble"></div>
+      <div class="avatar user"><i class="fa-solid fa-user"></i></div>
+    </div>
+  </template>
+  <template id="tpl-bot">
+    <div class="msg">
+      <div class="avatar"><i class="fa-solid fa-staff-snake"></i></div>
+      <div class="bubble"></div>
+    </div>
+  </template>
+  <template id="tpl-typing">
+    <div class="msg" id="typing">
+      <div class="avatar"><i class="fa-solid fa-staff-snake"></i></div>
+      <div class="bubble"><span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span></div>
+    </div>
+  </template>
+ 
+  <script>
+    const $ = (s, r=document) => r.querySelector(s);
+    const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+ 
+    const chatBody = $('#chatBody');
+    const form = $('#chatForm');
+    const input = $('#text');
+    const btn = $('#send');
+ 
+    // Upload structural elements
+    const imageInput = $('#imageInput');
+    const uploadTrigger = $('#uploadTrigger');
+    const fileIndicator = $('#fileIndicator');
+    const fileNameSpan = $('#fileName');
+    const clearFileBtn = $('#clearFile');
+ 
+    // Drag-and-drop elements
+    const appCard = $('#appCard');
+    const dropOverlay = $('#dropOverlay');
+    const dropOverlayText = $('#dropOverlayText');
+ 
+    // Voice elements
+    const micBtn = $('#micBtn');
+ 
+    const scrollBottom = () => chatBody.scrollTop = chatBody.scrollHeight;
+ 
+    function addMsg(templateId, text) {
+      const tpl = $(templateId).content.cloneNode(true);
+      const bubble = tpl.querySelector('.bubble');
+      if (text) bubble.innerHTML = sanitize(text);
+      chatBody.appendChild(tpl);
+      scrollBottom();
+    }
+ 
+    function showTyping() {
+      const tpl = $('#tpl-typing').content.cloneNode(true);
+      chatBody.appendChild(tpl);
+      scrollBottom();
+    }
+    function hideTyping() { $('#typing')?.remove(); }
+ 
+    function sanitize(html) {
+      const div = document.createElement('div');
+      div.textContent = html;
+      let safe = div.innerHTML.replace(/\n/g, '<br>');
+      return safe;
+    }
+ 
+    // Shared helper: takes a File object (from either the file picker or a drop)
+    // and pushes it into the same imageInput element so the rest of the app
+    // (preview indicator, FormData build, submit handler) doesn't need to care
+    // which path the file came from.
+    function attachFile(file) {
+      if (!file || !file.type.startsWith('image/')) {
+        addMsg('#tpl-bot', '⚠️ Please drop an image file (PNG, JPG, etc.) — that file type isn\'t supported.');
+        return;
+      }
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      imageInput.files = dt.files;
+ 
+      fileNameSpan.textContent = file.name;
+      fileIndicator.style.display = 'flex';
+      uploadTrigger.classList.add('active');
+      input.removeAttribute('required');
+    }
+ 
+    // ---------- Click-to-upload (existing flow, unchanged) ----------
+    uploadTrigger.addEventListener('click', () => imageInput.click());
+ 
+    imageInput.addEventListener('change', () => {
+      if (imageInput.files.length > 0) {
+        attachFile(imageInput.files[0]);
+      }
+    });
+ 
+    clearFileBtn.addEventListener('click', () => {
+      imageInput.value = '';
+      fileIndicator.style.display = 'none';
+      uploadTrigger.classList.remove('active');
+      input.setAttribute('required', 'required');
+    });
+ 
+    // ---------- Drag-and-drop ----------
+    // dragCounter avoids flicker: child elements firing dragenter/dragleave
+    // as the cursor crosses internal borders would otherwise toggle the
+    // overlay on and off rapidly.
+    let dragCounter = 0;
+ 
+    function isFileDrag(e) {
+      return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+    }
+ 
+    appCard.addEventListener('dragenter', (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      dragCounter++;
+      dropOverlay.classList.add('active');
+    });
+ 
+    appCard.addEventListener('dragover', (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault(); // required, or the browser will open the file instead of dropping it
+    });
+ 
+    appCard.addEventListener('dragleave', (e) => {
+      if (!isFileDrag(e)) return;
+      dragCounter = Math.max(0, dragCounter - 1);
+      if (dragCounter === 0) {
+        dropOverlay.classList.remove('active');
+        dropOverlay.classList.remove('drop-reject');
+        dropOverlayText.textContent = 'Drop your X-ray image here';
+      }
+    });
+ 
+    appCard.addEventListener('drop', (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      dragCounter = 0;
+      dropOverlay.classList.remove('active');
+      dropOverlay.classList.remove('drop-reject');
+      dropOverlayText.textContent = 'Drop your X-ray image here';
+ 
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) attachFile(file);
+    });
+ 
+    // Prevent the browser's default "navigate to file" behavior anywhere
+    // outside our card too, so a missed drop doesn't blow away the page.
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', (e) => e.preventDefault());
+ 
+    // ---------- Voice input (Web Speech API - browser-native, no backend changes) ----------
+    const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognizer = null;
+    let isRecording = false;
+ 
+    if (!SpeechRecognitionImpl) {
+      // Graceful degrade: keep the button visible but inert, with a clear hint.
+      micBtn.classList.add('mic-unsupported');
+      micBtn.title = 'Voice input is not supported in this browser (try Chrome or Edge)';
+    } else {
+      recognizer = new SpeechRecognitionImpl();
+      recognizer.lang = 'en-US';
+      recognizer.continuous = false;     // stop automatically after one utterance
+      recognizer.interimResults = true;  // show partial text while speaking
+ 
+      let baseText = ''; // whatever was already typed before recording started
+ 
+      recognizer.addEventListener('start', () => {
+        isRecording = true;
+        baseText = input.value.trim();
+        micBtn.classList.add('recording');
+        micBtn.innerHTML = '<i class="fa-solid fa-stop"></i>';
+      });
+ 
+      recognizer.addEventListener('result', (e) => {
+        let transcript = '';
+        for (let i = 0; i < e.results.length; i++) {
+          transcript += e.results[i][0].transcript;
+        }
+        input.value = (baseText ? baseText + ' ' : '') + transcript;
+      });
+ 
+      recognizer.addEventListener('end', () => {
+        isRecording = false;
+        micBtn.classList.remove('recording');
+        micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+      });
+ 
+      recognizer.addEventListener('error', (e) => {
+        isRecording = false;
+        micBtn.classList.remove('recording');
+        micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          addMsg('#tpl-bot', '⚠️ Microphone access was blocked. Please allow microphone permission and try again.');
+        } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+          addMsg('#tpl-bot', `⚠️ Voice input error: ${e.error}`);
+        }
+      });
+ 
+      micBtn.addEventListener('click', () => {
+        if (isRecording) {
+          recognizer.stop();
+        } else {
+          try {
+            recognizer.start();
+          } catch (err) {
+            console.error(err);
+          }
+        }
+      });
+    }
+ 
+    // ---------- Submit (unchanged logic, now fed by either typing, dropping, or speaking) ----------
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      const hasImage = imageInput.files.length > 0;
+ 
+      if (!text && !hasImage) return;
+ 
+      // Stop any in-progress recording before sending
+      if (isRecording && recognizer) recognizer.stop();
+ 
+      // Construct user visible message display block
+      let displayMsg = text;
+      if (hasImage) {
+        displayMsg = `🖼️ Attached Image: [${imageInput.files[0].name}]` + (text ? `<br>${text}` : '');
+      }
+ 
+      const u = $('#tpl-user').content.cloneNode(true);
+      u.querySelector('.bubble').innerHTML = displayMsg; // Render content locally
+      chatBody.appendChild(u);
+ 
+      // Build FormData to carry binary files seamlessly to Flask
+      const formData = new FormData();
+      formData.append('msg', text);
+      if (hasImage) {
+        formData.append('image', imageInput.files[0]);
+      }
+ 
+      // Reset inputs immediately
+      input.value = '';
+      imageInput.value = '';
+      fileIndicator.style.display = 'none';
+      uploadTrigger.classList.remove('active');
+      input.setAttribute('required', 'required');
+      input.focus();
+      scrollBottom();
+ 
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+      showTyping();
+ 
+      try {
+        const res = await fetch('/get', {
+          method: 'POST',
+          body: formData // Sends multi-part metadata matching Flask's request.files setup
+        });
+        const data = await res.text();
+        hideTyping();
+        addMsg('#tpl-bot', data || 'Sorry, I could not generate a response.');
+      } catch (err) {
+        hideTyping();
+        addMsg('#tpl-bot', '⚠️ Network error. Please try again.');
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
+      }
+    });
+ 
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+ 
+    const themeBtn = $('#btnTheme');
+    const saved = localStorage.getItem('theme') || 'dark';
+    document.body.setAttribute('data-theme', saved);
+    updateThemeIcon();
+ 
+    themeBtn.addEventListener('click', () => {
+      const current = document.body.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.body.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      updateThemeIcon();
+    });
+ 
+    function updateThemeIcon(){
+      const isLight = document.body.getAttribute('data-theme') === 'light';
+      themeBtn.innerHTML = isLight ? '<i class="fa-regular fa-moon"></i>' : '<i class="fa-regular fa-sun"></i>';
+    }
+ 
+    addMsg('#tpl-bot', 'Hi! I can answer general medical questions and analyze imaging scans. Click the paperclip to upload, drag & drop a scan, or use the mic to speak your question.');
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

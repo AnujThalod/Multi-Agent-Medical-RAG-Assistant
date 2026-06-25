@@ -1,0 +1,19 @@
+# Environment & secrets — contains live API keys, must NEVER be public
+.env
+
+# Python build artifacts — regenerated automatically, no reason to version
+__pycache__/
+*.pyc
+venv/
+env/
+
+# Model weights — too large for GitHub's normal file size limits (see step 7)
+densenet121_weights.pth
+*.pth
+
+# Temp upload folder — runtime junk, not source code
+temp_uploads/
+
+# OS/editor clutter
+.DS_Store
+.vscode/
