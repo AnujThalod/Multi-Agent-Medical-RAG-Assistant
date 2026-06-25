@@ -101,7 +101,7 @@ GROQ_API_KEY=your_groq_key_here
 The fine-tuned DenseNet-121 weights are too large for this repository and are hosted on Hugging Face Hub:
 
 👉 Download densenet121_weights.pth from Hugging Face Hub
-(replace this link with your actual Hugging Face model page URL)
+https://huggingface.co/AnujThalod/Multi-Agent-RAG-Assistant/tree/main
 
 Place the downloaded file in the project root, alongside app.py:
 
